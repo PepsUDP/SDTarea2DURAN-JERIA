@@ -68,29 +68,33 @@ const sendMessage = async (key, value) => {
 	console.log(`Message sent to Kafka topic: ${topic}`);
 };
 
-// Funcion para leer los mensajes del topic
+const processedMessages = new Set();
+
+// Function to consume messages
 const consume = async () => {
-	// first, we wait for the client to connect and subscribe to the given topic
+	// Client subscribes to topic
 	await consumer.connect();
+	await producer.connect();
 	await consumer.subscribe({ topic });
 	await consumer.run({
-		// this function is called every time the consumer gets a new message
 		eachMessage: ({ message }) => {
 			const key = message.key.toString();
 			let value = message.value.toString();
-			console.log(`ID: ${key}`);
-			console.log(`Value: ${value}`);
+			console.log(`ID: ${key} - Value: ${value}`);
 			value = JSON.parse(value);
 
-			// if (Buffer.isBuffer(value)) {
-			// 	value = value.toString();
-			// }
-			// if (typeof value === 'string') {
-			// 	value = JSON.parse(value);
-			// }
-
 			const estados = ["recibido", "preparando", "entregando", "finalizado"];
-			let estadoIndex = 0;
+			let estadoIndex = estados.indexOf(value.estado);
+
+			if (estadoIndex === -1) {
+				estadoIndex = 0;
+			} else {
+				estadoIndex++;
+			}
+			
+			if (estadoIndex >= estados.length) {
+				return;
+			}
 
 			const updateEstado = async () => {
 				if (estadoIndex < estados.length) {
@@ -101,7 +105,10 @@ const consume = async () => {
 				  const text = `El estado de su pedido ha sido actualizado a: ${value.estado}`;
 				  sendEmail(value.email, subject, text);
 
+				  // console.log(key, value);
 				  await sendMessage(key, value);
+
+				  processedMessages.add(key + value.estado);
 
 				  estadoIndex++;
 				  if (estadoIndex < estados.length) {
@@ -110,38 +117,13 @@ const consume = async () => {
 				}
 			  };
 
-			  updateEstado();
-
+			  if (!processedMessages.has(key + estados[estadoIndex - 1])) {
+				processedMessages.add(key + estados[estadoIndex - 1]);
+			    updateEstado();
+			  }
 		}
 	});
 }
-
-// const produce = async (req) => {
-
-// 	const { food, email } = req.body;
-// 	const price = req.price;
-
-// 	await producer.connect();
-
-// 	console.log('food: ' + food + ' - price: ' + price + ' - email: ' + email);
-	
-// 	try {
-// 	  id = i.toString()
-// 	  // Agregar email y precio al mensaje
-// 	  await producer.send({
-// 		topic,
-// 		messages: [
-// 		  {
-// 			key: id,
-// 			value: JSON.stringify({ food, price, email }),
-// 		  },
-// 		],
-// 	  })
-// 	  i++
-// 	} catch (error) {
-// 	  console.error(`Failed to send message: ${error}`)
-// 	}
-// }
 
 // Lee los mensajes en topic
 app.get("/cons", async (req, res) => {
